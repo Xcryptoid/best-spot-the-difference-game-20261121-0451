@@ -1,91 +1,54 @@
-// Harbour Lights — boot and the animation loop. The canvas keeps a fixed
-// 1280x720 logical size and CSS scales it to the window; clicks are mapped back
-// through the canvas bounding box. With ?shot=<name> the game renders one
-// frozen, deterministic frame for screenshots instead of playing.
-import { BEST_KEY, FIELD } from './config.js';
-import { SoundBank } from './audio.js';
-import { buttonAt, handleClick, handleKey } from './input.js';
-import { render } from './render.js';
+// Bootstrap: one fixed 1280x800 canvas, one Game, one animation loop. Mouse
+// clicks and the H / M / R keys drive the game; ?shot=start|play|near|win
+// stages a frozen frame for the screenshots instead of playing. The game is
+// exposed as window.__game so an automated play-test can drive it.
+import { Game, VIEW_W, VIEW_H } from './game.js';
 import { stageShot } from './shots.js';
-import { freshState, SCREEN_WIN, tick } from './state.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-const status = document.getElementById('status');
-const state = freshState();
-const sounds = new SoundBank();
-
-try {
-  state.best = Number(window.localStorage.getItem(BEST_KEY) ?? 0) || 0;
-} catch {
-  state.best = 0;
-}
+const game = new Game();
+window.__game = game;
 
 const params = new URLSearchParams(window.location.search);
 const shot = params.get('shot');
-let frozenNow = 1.0;
-if (shot) {
-  stageShot(shot, state);
-  frozenNow = 1.0;
-}
+if (shot) stageShot(shot, game);
 
-let hover = null;
-let last = performance.now();
-let lastStatus = '';
-
-function logicalPoint(event) {
+function toCanvasCoords(event) {
   const rect = canvas.getBoundingClientRect();
   return {
-    x: ((event.clientX - rect.left) / rect.width) * FIELD.width,
-    y: ((event.clientY - rect.top) / rect.height) * FIELD.height,
+    x: ((event.clientX - rect.left) / rect.width) * VIEW_W,
+    y: ((event.clientY - rect.top) / rect.height) * VIEW_H,
   };
 }
 
 canvas.addEventListener('click', (event) => {
-  const point = logicalPoint(event);
-  handleClick(state, point.x, point.y, performance.now() / 1000, sounds);
-});
-
-canvas.addEventListener('mousemove', (event) => {
-  const point = logicalPoint(event);
-  hover = buttonAt(state, point.x, point.y);
+  const { x, y } = toCanvasCoords(event);
+  game.click(x, y);
 });
 
 window.addEventListener('keydown', (event) => {
-  if (event.key === 'Tab') return;
-  handleKey(state, event.key, performance.now() / 1000, sounds);
-  event.preventDefault();
+  const key = event.key.toLowerCase();
+  if (key === 'h') game.useHint();
+  else if (key === 'm') game.toggleMute();
+  else if (key === 'r') game.startGame();
+  else if (key === ' ' || key === 'enter') {
+    if (game.screen === 'title') game.startGame();
+    else if (game.screen !== 'play') game.advance();
+    event.preventDefault();
+  }
 });
 
-function frame(nowMs) {
-  const now = shot ? frozenNow : nowMs / 1000;
-  const dt = shot ? 0 : Math.min(0.1, (nowMs - last) / 1000);
-  last = nowMs;
-  const ranOut = tick(state, dt, now);
-  if (ranOut) sounds.lose();
-  if (state.screen === SCREEN_WIN && state.score > state.best) {
-    state.best = state.score;
-    try {
-      window.localStorage.setItem(BEST_KEY, String(state.best));
-    } catch {
-      // Best score is a nicety; a blocked store must never break the game.
-    }
-  }
-  render(ctx, state, now, hover);
-  const text =
-    state.screen === 'play'
-      ? `${10 - state.found.size} differences left in scene ${state.round + 1}, ${Math.ceil(state.timeLeft)} seconds, score ${state.score}`
-      : state.screen;
-  if (text !== lastStatus) {
-    status.textContent = text;
-    lastStatus = text;
-  }
-  if (!shot) window.requestAnimationFrame(frame);
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  // A staged shot is a frozen frame: the loop redraws it but never advances
+  // the timer, so the screenshot is the same whenever it is taken.
+  if (!shot) game.tick(dt);
+  game.render(ctx);
+  requestAnimationFrame(frame);
 }
 
-render(ctx, state, frozenNow, hover);
-if (shot) {
-  status.textContent = `staged shot ${shot}`;
-} else {
-  window.requestAnimationFrame(frame);
-}
+requestAnimationFrame(frame);
+window.__ready = true;
