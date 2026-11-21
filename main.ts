@@ -1,10 +1,13 @@
-// Harbour Lights — the hand-in program for the make.fun spot-the-difference
-// bounty. It runs on Node 22 with the standard library only: it copies this
-// repository's game/ and screenshots/ into the output directory and writes
-// /output/dossier.json with the kit's vendored library, so the judge can read
-// the game. Outside the grader, MAKEFUN_OUTPUT_DIR stands in for /output:
+// Hand-in for the spot-the-difference game (Node 22, standard library only).
+// The game is plain static files under game/ plus 3-4 screenshots under
+// screenshots/; this program copies both into /output and writes
+// /output/dossier.json with the vendored make.fun library, exactly as the
+// gate expects. Run it twice and the bytes are identical.
+//
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-
+//
+// Outside the grader, MAKEFUN_OUTPUT_DIR stands in for /output. Serve the
+// game locally with `node serve.ts` and open http://localhost:8080.
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,9 +23,8 @@ if (existsSync(join(here, 'screenshots'))) {
   cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
 }
 
-// The caps match the gate in the kit's RULES.txt: the dossier text is capped,
-// screenshots are at most 4 files of 256 KiB, and game/ stays within its
-// 993-file / 48 MiB limits, so the whole output fits the platform's cap.
+// The caps mirror the scorer's: at most 4 screenshots of 256 KiB, at most
+// 993 files and 48 MiB under game/, and no game/ path over 1000 bytes.
 writeFileSync(
   join(out, 'dossier.json'),
   buildDossier(out, {
